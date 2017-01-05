@@ -19,7 +19,8 @@
  * files and list directories for use with the gulp live server
  */
 var BBPromise = require('bluebird');
-var app = require('express')();
+var express = require('express');
+var app = express();
 var bacon = require('baconipsum');
 var bodyParser = require('body-parser');
 var morgan = require('morgan');
@@ -511,7 +512,6 @@ app.get(['/examples/*', '/test/manual/*'], function(req, res, next) {
   });
 });
 
-// "fake" a4a creative.
 app.get('/extensions/amp-ad-network-fake-impl/0.1/data/fake_amp.json.html', function(req, res) {
   var filePath = '/extensions/amp-ad-network-fake-impl/0.1/data/fake_amp.json';
   fs.readFileAsync(process.cwd() + filePath).then(file => {
@@ -521,7 +521,50 @@ app.get('/extensions/amp-ad-network-fake-impl/0.1/data/fake_amp.json.html', func
   });
 });
 
+// Simulated Cloudflare signed Ad server
 
+cloudflareDir = '/extensions/amp-ad-network-cloudflare-impl/0.1/data';
+
+/**
+ * Handle CORS headers
+ */
+app.use(cloudflareDir, function fakeCors(req, res, next) {
+    res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+    res.setHeader("Access-Control-Allow-Origin", req.get("Origin") || "*");
+    res.setHeader("AMP-Access-Control-Allow-Source-Origin", req.params["__amp_source_origin"] || "");
+    res.setHeader("Access-Control-Expose-Headers", "AMP-Access-Control-Allow-Source-Origin,X-AmpAdSignature");
+    next();
+})
+
+/**
+ * Handle CORS preflight
+ */
+app.options(cloudflareDir + '/*', function(req, res) {
+    res.status(204);
+    res.end();
+});
+
+/**
+ * Handle fake data
+ */
+app.get(cloudflareDir + '/*', function(req, res) {
+  var filePath = req.path;
+  if (req.path.endsWith('.html')) {
+    filePath = process.cwd() + req.path.slice(0,-5)
+    fs.readFileAsync(filePath).then(file => {
+      const metadata = JSON.parse(file);
+      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('X-AmpAdSignature', metadata.signature);
+      res.end(metadata.creative);
+    }).error( () => {
+      res.status(404);
+      res.end("Not found: " + filePath);
+    });
+  } else {
+    res.status(404);
+    res.end("Not found");
+  }
+});
 
 /*
  * Start Cache SW LOCALDEV section
